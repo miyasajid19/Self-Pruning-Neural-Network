@@ -1,5 +1,9 @@
 # Self-Pruning Neural Network (CIFAR-10)
-
+Name: Sajid Miya  
+Roll Number: 102367013  
+Branch: Computer Science and Engineering  
+Batch: 2027
+---
 ## Problem Title
 
 Self-Pruning Neural Network
@@ -26,13 +30,13 @@ A custom `PrunableLinear` layer is implemented with:
 
 * Gates computed as:
 
-  ```
+  ```python
   gates = sigmoid(gate_scores)
   ```
 
 * Effective weights:
 
-  ```
+  ```python
   pruned_weights = weight * gates
   ```
 
@@ -42,20 +46,17 @@ This formulation ensures **end-to-end differentiability**, allowing gradients to
 
 ### 2) Network Architecture
 
-A hybrid CNN + prunable MLP architecture is used:
+A hybrid CNN + prunable classifier architecture is used:
 
-* **Feature extractor**
+* Conv2d (3 -> 32, kernel=3, padding=1) + BatchNorm + ReLU + MaxPool
+* Conv2d (32 -> 64, kernel=3, padding=1) + BatchNorm + ReLU + MaxPool
+* Flatten: 64 x 8 x 8 -> 4096
+* Dropout (p=0.5)
+* PrunableLinear (4096 -> 512)
+* PrunableLinear (512 -> 256)
+* PrunableLinear (256 -> 10)
 
-  * Conv2d → BatchNorm → ReLU → MaxPool (×2)
-
-* **Classifier**
-
-  * Dropout
-  * PrunableLinear (4096 → 512)
-  * PrunableLinear (512 → 256)
-  * PrunableLinear (256 → 10)
-
-The CNN learns spatial features, while prunable layers enable adaptive sparsification.
+Only the fully connected classifier uses learnable pruning gates, so pruning pressure is applied where most dense parameters are concentrated.
 
 ---
 
@@ -63,13 +64,13 @@ The CNN learns spatial features, while prunable layers enable adaptive sparsific
 
 Total loss:
 
-```
+```text
 Total Loss = CrossEntropyLoss + λ * SparsityLoss
 ```
 
 Where:
 
-```
+```text
 SparsityLoss = sum(sigmoid(gate_scores))
 ```
 
@@ -101,50 +102,63 @@ SparsityLoss = sum(sigmoid(gate_scores))
 
 ## Experimental Results
 
-**Configuration**
+### Configuration
 
 * Train: 47,500
 * Validation: 2,500
 * Test: 10,000
-* Sparsity threshold: 1e-2
+* Sparsity threshold: 0.01
 
-| Lambda | Val Acc (%) | Test Acc (%) | Sparsity (%) |
+| Lambda | Validation Accuracy (%) | Test Accuracy (%) | Sparsity (%) |
 | ------ | ----------: | -----------: | -----------: |
-| 0      |       70.40 |        72.96 |         0.00 |
-| 1e-05  |       70.64 |        73.32 |         9.15 |
-| 0.0001 |       68.76 |        72.50 |         7.77 |
-| 0.001  |       64.80 |        68.10 |         9.90 |
-| 0.01   |       63.60 |        66.18 |         0.13 |
-| 0.1    |       62.04 |        65.96 |         0.00 |
-| 1      |       62.88 |        66.23 |         0.03 |
+| 0      |       70.80 |        73.31 |         0.00 |
+| 0.000001 |       71.40 |        74.11 |        18.19 |
+| 0.00001  |       70.36 |        73.05 |        35.84 |
+| 0.0001 |       66.76 |        69.56 |        54.34 |
+| 0.0005 |       64.88 |        67.22 |        67.45 |
+| 0.0009 |       63.08 |        66.12 |        56.60 |
+| 0.001  |       63.56 |        66.18 |        57.19 |
+| 0.005  |       57.32 |        60.20 |        54.92 |
+| 0.01   |       56.60 |        59.68 |         6.17 |
+| 0.1    |       56.40 |        59.10 |         2.20 |
 
-**Best configuration**
+### Best Configuration
 
-* λ = 1e-05
-* Validation Accuracy = 70.64%
-* Test Accuracy = 73.32%
-* Sparsity = 9.15%
+* λ = 0.000001
+* Validation Accuracy = 71.40%
+* Test Accuracy = 74.11%
+* Sparsity = 18.19%
 
 ---
+
 ## Graphs
 
 ### Lambda vs Validation Accuracy
+
 ![Validation Accuracy vs Lambda](./graphs/validation_accuracy_vs_lambda.png)
 
-Peak validation accuracy occurs at λ = 1e-05, indicating the best trade-off between sparsity and performance.
+Peak validation accuracy occurs at λ = 0.000001, indicating the best accuracy-oriented setting in this sweep.
+
+### Sparsity vs Validation Accuracy Trade-off
+
+![Sparsity vs Validation Accuracy](./graphs/sparsity_vs_validation_accuracy_tradeoff.png)
+
+This view highlights the frontier between compression and performance. Higher sparsity is achievable (up to 67.45%), but with a clear validation-accuracy drop.
 
 ### Gate Distribution (Best Model)
-![Gate Distribution](./graphs/best_model_gates.png)
 
+![Gate Distribution](./graphs/best_model_gates.png)
 
 A concentration of gate values near zero indicates effective pruning of less important connections.
 
 ---
+
 ## Analysis & Insights
 
-* Moderate λ values achieve a **good trade-off** between accuracy and sparsity
-* Very high λ values degrade performance due to over-regularization
-* Sparsity does not monotonically increase at high λ, indicating **optimization instability**
+* λ = 0.000001 provides the highest validation/test performance while still inducing meaningful sparsity
+* λ = 0.00001 increases sparsity substantially (35.84%) with only a small accuracy drop
+* λ around 0.0001 to 0.001 pushes sparsity above 50%, but accuracy declines significantly
+* Very high λ values (0.01, 0.1) degrade accuracy and also reduce sparsity, indicating **optimization instability**
 
 **Important observation:**
 
@@ -164,56 +178,30 @@ This highlights a limitation of sigmoid-based gating and suggests:
 ## Limitations
 
 * **Soft pruning only**: weights are suppressed but not physically removed
-* No reduction in FLOPs or inference latency
-* Only fully connected layers are pruned (not convolutional layers)
+* No reduction in FLOPs or inference latency unless hard-pruning/export is added
+* Sigmoid gates can saturate, which may slow gate optimization at extreme lambda values
 
 ---
 
-## Future Work
-
-* Implement **hard pruning** (threshold-based weight removal)
-* Extend to **structured pruning** (channel/filter pruning)
-* Use **L0 regularization** for sharper sparsity
-* Measure **actual inference speedup and memory savings**
-
----
-
-## Evaluation Criteria Coverage
-
-### Prunable Layer
-
-* Correct gating mechanism
-* Proper gradient flow
-
-### Training Loop
-
-* Combined loss implemented correctly
-* All parameters updated
-
-### Results
-
-* Clear sparsity–accuracy trade-off
-* Multiple λ comparisons
-
-### Code Quality
-
-* Modular, reproducible, and well-structured
-* Includes validation, checkpointing, and visualization
-
----
 
 ## How to Run
 
+Activate the virtual environment (PowerShell):
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
 Install dependencies:
 
-```
+```bash
 pip install -r requirements.txt
 ```
 
-Run training:
+Run training (same style as your session):
 
-```
-python self_pruning_cifar10.py
+```powershell
+py self_pruning_cifar10.py
 ```
 
 ---
@@ -221,6 +209,7 @@ python self_pruning_cifar10.py
 ## Outputs
 
 * `graphs/validation_accuracy_vs_lambda.png`
+* `graphs/sparsity_vs_validation_accuracy_tradeoff.png`
 * `graphs/best_model_gates.png`
 * `best_model_checkpoint.pth`
 
@@ -228,4 +217,4 @@ python self_pruning_cifar10.py
 
 ## Conclusion
 
-This project demonstrates that **self-pruning during training is feasible and stable** using differentiable gating. While current results show modest sparsity, the approach provides a strong foundation for building efficient, adaptive neural networks.
+This project demonstrates that **self-pruning during training is feasible and effective** using differentiable gating. The latest sweep shows a strong operating point at λ = 0.000001 (best accuracy with non-trivial sparsity) and a controllable sparsity-accuracy trade-off across larger λ values.

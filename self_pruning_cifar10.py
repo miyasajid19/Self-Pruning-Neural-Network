@@ -221,7 +221,7 @@ test_loader = DataLoader(test_dataset, batch_size=64)
 # =========================
 # Experiment with Different λ
 # =========================
-lambdas = [0, 1e-05, 1e-04, 1e-03, 1e-02, 1e-01, 1]
+lambdas = [0, 1e-06, 1e-05, 1e-04, 5e-04, 9e-04, 1e-03,5e-03, 1e-02, 1e-01]
 results = []
 best_lambda = None
 best_lambda_val_accuracy = 0.0
@@ -229,26 +229,15 @@ best_lambda_test_accuracy = 0.0
 best_lambda_sparsity = 0.0
 best_lambda_model_state = None
 
-# Train a base model first to get initial weights
-print("===== Training Base Model =====")
-base_model = PrunableCNN().to(device)
-base_optimizer = optim.Adam(base_model.parameters(), lr=1e-3)
-base_scheduler = optim.lr_scheduler.StepLR(base_optimizer, step_size=5, gamma=0.5)
-train(base_model, train_loader, val_loader, base_optimizer, base_scheduler, lambda_sparse=0, epochs=5)
-
-# Save base model state
-base_state_dict = base_model.state_dict()
-
 # Train each lambda with same initial weights
 for lambda_sparse in lambdas:
     print(f"\n===== Training with lambda = {lambda_sparse} =====")
 
     model = PrunableCNN().to(device)
-    model.load_state_dict(base_state_dict)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    val_accuracy, best_state_dict = train(model, train_loader, val_loader, optimizer, scheduler, lambda_sparse, epochs=10)
+    val_accuracy, best_state_dict = train(model, train_loader, val_loader, optimizer, scheduler, lambda_sparse, epochs=20)
     model.load_state_dict(best_state_dict)
 
     accuracy = test(model, test_loader)
@@ -290,10 +279,13 @@ print(f"Best validation accuracy: {best_lambda_val_accuracy:.2f}%")
 print(f"Best test accuracy: {best_lambda_test_accuracy:.2f}%")
 print(f"Best sparsity: {best_lambda_sparsity:.2f}%")
 
-# Plot lambda vs validation accuracy and highlight the best lambda
-lambdas_only = [item[0] for item in results]
-val_accuracies = [item[1] for item in results]
+# Keep the sweep ordered from low to high lambda for reporting and plotting
+sorted_results = sorted(results, key=lambda item: item[0])
+lambdas_only = [item[0] for item in sorted_results]
+val_accuracies = [item[1] for item in sorted_results]
+sparsities = [item[3] for item in sorted_results]
 
+# Plot lambda vs validation accuracy and highlight the best lambda
 plt.figure(figsize=(8, 5))
 plt.plot(lambdas_only, val_accuracies, marker="o", linewidth=2)
 plt.scatter([best_lambda], [best_lambda_val_accuracy], color="red", s=100, label="Best lambda")
@@ -304,6 +296,36 @@ plt.title("Validation Accuracy vs Lambda")
 plt.legend()
 plt.tight_layout()
 plt.savefig("graphs/validation_accuracy_vs_lambda.png", dpi=300, bbox_inches="tight")
+plt.show()
+
+# Plot sparsity vs validation accuracy to show the trade-off directly
+plt.figure(figsize=(8, 5))
+tradeoff_scatter = plt.scatter(
+    sparsities,
+    val_accuracies,
+    c=lambdas_only,
+    cmap="viridis",
+    s=90,
+    edgecolors="black",
+)
+
+for lambda_value, sparsity, val_accuracy in zip(lambdas_only, sparsities, val_accuracies):
+    plt.annotate(
+        f"{lambda_value:g}",
+        (sparsity, val_accuracy),
+        textcoords="offset points",
+        xytext=(5, 5),
+        fontsize=8,
+    )
+
+plt.xlabel("Sparsity (%)")
+plt.ylabel("Validation Accuracy (%)")
+plt.title("Sparsity vs Validation Accuracy Trade-off")
+plt.grid(True, alpha=0.25)
+colorbar = plt.colorbar(tradeoff_scatter)
+colorbar.set_label("Lambda")
+plt.tight_layout()
+plt.savefig("graphs/sparsity_vs_validation_accuracy_tradeoff.png", dpi=300, bbox_inches="tight")
 plt.show()
 
 # Plot gate distribution for the best model
