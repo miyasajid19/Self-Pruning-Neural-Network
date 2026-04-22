@@ -1,9 +1,4 @@
 # Self-Pruning Neural Network (CIFAR-10)
-Name: Sajid Miya  
-Roll Number: 102367013  
-Branch: Computer Science and Engineering  
-Batch: 2027
----
 ## Problem Title
 
 Self-Pruning Neural Network
